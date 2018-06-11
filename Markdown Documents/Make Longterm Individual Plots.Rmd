@@ -1,0 +1,382 @@
+---
+title: "Make Longterm Individual Evenness Plots"
+author: "Christopher Bolte"
+date: "April 16, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(vegan)
+library(lubridate)
+```
+
+
+
+
+```{r}
+get_longterm_fish <- function(df, species_name, n_years = 7, int_length= 0) { 
+  det <- df
+  det <- subset(det, Species == species_name)
+  det <- subset(det, Length > int_length)
+  all_fish <- c(unique(det$TagID))
+  df_longterm_fish <- NULL
+  for (fish in all_fish) {
+    print(fish)
+    ind_fish <- subset(det, TagID == fish)
+    first_det <- min(ind_fish$DetectDate)
+    last_det <- max(ind_fish$DetectDate)
+    total_time <- as.numeric(difftime(last_det, first_det, units = 'days'))
+    total_time <- signif(total_time/365, digits=3) #convert total_time to years
+    print(total_time)
+    if (total_time >= n_years) {
+      print('Condition Triggered')
+      df_longterm_fish <- rbind(df_longterm_fish, data.frame(fish, total_time, first_det, last_det))
+    }
+  }
+  df_longterm_fish <- df_longterm_fish[order(df_longterm_fish$total_time), ]
+  num <- nrow(df_longterm_fish)
+  print(paste('There are', num, species_name, 'that have been detected for over', n_years, 'years.'))
+  return(df_longterm_fish)
+}
+```
+
+
+```{r}
+get_specific_tags <- function(taglist, df) {
+  det <- df
+  all_tags <- unique(taglist$fish)
+  df_new <- NULL
+  for (tag in all_tags) {
+    print(tag)
+    ind_tag <- subset(det, TagID == tag)
+    df_new <- rbind(df_new, ind_tag)
+  }
+  return(df_new)
+}
+```
+
+
+```{r}
+get_years <- function(df) {
+  det <- df
+  det$DetectDate <- substr(as.character(det$DetectDate), 1,4)
+  year_vector <- sort(unique(det$DetectDate))
+  print(year_vector)
+  df_spec_years <- NULL
+for (y in year_vector) {
+  ind_year <- subset(df_years, year == y)
+  df_spec_years <- rbind(df_spec_years, ind_year)
+  }
+  return(df_spec_years)
+}
+```
+
+
+```{r}
+get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_startdate='2000-01-01 00:00:00', str_enddate='2100-01-01 00:00:00', study_year_month) {
+  det <- df[df$Detect_rkm > low_rkm & df$Detect_rkm < high_rkm, ] #Takes detections only within specified rkms
+  det <- df[df$DetectDate > str_startdate & df$DetectDate < str_enddate, ] #takes detections only within certain dates
+  df_allmoves <- NULL
+  print(nrow(det))
+  print(head(det))
+  if (nrow(det) > 0) {
+    det$Detect_rkm <- as.numeric(det$Detect_rkm)
+    det$Release_rkm <- as.numeric(det$Release_rkm)
+    det <- det[is.na(det$Detect_rkm) == FALSE, ]
+    det <- det[is.na(det$Release_rkm) == FALSE, ]
+    all_tags <- c(unique(det$TagID))
+    
+    count <- 1
+    total_count <- length(all_tags)
+    print(species_name)
+    for (tag in all_tags) {
+      #Get fish that have been detected for over a specified number of years.
+      print(paste(count, '/', total_count))
+      ind_tag <- det[det$TagID == tag, ]
+      #print(ind_tag)
+      #print(nrow(ind_tag))
+      if (nrow(ind_tag) > 0) {
+        ind_tag <- ind_tag[order(ind_tag$DetectDate), ]
+        first_det <- min(ind_tag$DetectDate)
+        last_det <- max(ind_tag$DetectDate)
+        length <- ind_tag$Length[1]
+        all_rows <- c(1:nrow(ind_tag))
+        total_rkm <- abs(ind_tag$Release_rkm[1] - ind_tag$Detect_rkm[1])
+        for (row in all_rows) {
+          first_rkm <- ind_tag$Detect_rkm[row]
+          second_rkm <- ind_tag$Detect_rkm[row + 1]
+          if (row == nrow(ind_tag)) { #may need to add some subtleties to make sure that if the last detection is different from the second to last that this gets accounted for.
+            species <- species_name
+            df_allmoves <- rbind(df_allmoves, data.frame(tag, total_rkm, species, study_year_month, length, first_det, last_det))
+            break
+          }
+          if (first_rkm != second_rkm) {
+            diff_rkm <- abs(first_rkm - second_rkm)
+            total_rkm <- total_rkm + diff_rkm
+          }
+        }
+        count <- count + 1
+      }
+    }
+  }
+  return(df_allmoves)
+}
+```
+
+
+```{r}
+get_species_motility_longterm <- function(df, species_id) {
+  ind_species <- subset(df, Species == species_id)
+  ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE)
+  ind_species <- subset(ind_species, Length != 'NULL')
+  ind_species$Length <- as.numeric(ind_species$Length)
+  #ind_species <- subset(ind_species, Length > int_length)
+  df_year_info <- get_years(ind_species)
+  print(df_year_info)
+  all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info)
+  return(all_motilities)
+}
+
+```
+
+
+```{r}
+get_all_motilities_years <- function(df, species_name, year_list) {
+  #Year list should have 3 entries, 'year', 'start', 'end'. This should be made before the loop
+  df_all_motilities <- NULL
+  all_years <- 1:nrow(year_list)
+  for (y in all_years) { #y should be a number index
+    start_datetime <- as.character(year_list$start_date[y])
+    end_datetime <- as.character(year_list$end_date[y])
+    year_month <- as.character(year_list$year[y])
+    print(start_datetime)
+    print(end_datetime)
+    print(year_month)
+    motility <-  df %>% 
+      get_year_motility(species_name = species_name, str_startdate = start_datetime, str_enddate = end_datetime, study_year_month=year_month) %>%
+      add_rank
+    df_all_motilities <- rbind(df_all_motilities, motility)
+  }
+  return(df_all_motilities)
+}
+
+```
+
+
+```{r}
+add_rank <- function(df) {
+  det <- df
+  det <- det[order(det$total_rkm, decreasing = TRUE), ]
+  det$index <- c(1:nrow(det))
+  return(det)
+}
+
+```
+
+```{r}
+lm_eqn <- function(df){
+  new_df <- df
+  #new_df <- subset(new_df, proportion > 0.0000)
+  m <- lm(proportion ~ index, new_df);
+  eq <- substitute(italic(proportion) == a + b %.% italic(index)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(coef(m)[1], digits = 2), 
+                        b = format(coef(m)[2], digits = 2), 
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq));                 
+}
+```
+
+```{r}
+longterm_individual_evenness <- function(df, tagid) {
+  motility <- df
+  
+  motility$proportion <- signif(motility$proportion, digits = 5)
+  df_shannon <- motility %>% group_by(proportion) %>% tally()
+  specnumber <- length(unique(df_shannon$proportion))
+  shannon_index <- diversity(df_shannon$n)
+  pielou_index <- signif(shannon_index/(specnumber), digits = 3)
+  print(pielou_index)
+  
+  ggplot(data = motility, aes(x= index, y= proportion)) + 
+    geom_point() + 
+    geom_line() +
+    theme(legend.position = 'none') +
+    xlab('Rank') +
+    ylab('Proportion') +
+    ggtitle(tagid) +
+    #ggtitle(paste(study_year, 'Rank vs Motility of', species_name, 'in Sacramento/San Joaquin Watershed')) +
+    #theme(plot.title = element_text(size = 10, face = "bold")) +
+    #theme(axis.title = element_text(size=8)) +
+    coord_cartesian(ylim = c(0, 5)) + 
+    annotate('text', x=nrow(motility)/3, y=1, label = paste('Index of Evenness:', pielou_index, sep = ' '), size = 2.5) +
+    geom_text(x = nrow(motility)/2, y = .5, label = lm_eqn(motility), parse = TRUE, size = 2.5) +
+    geom_smooth(method='lm', col='red', size=.4, se = FALSE)
+}
+```
+
+
+```{r}
+get_longterm_plots <- function(df_motility, spec_name) {
+  det <- df_motility
+  graph_list <- NULL
+  tags <- unique(det$tag)
+  for (t in tags) {
+    ind_tag <- subset(det, tag == t)
+    ind_tag <- smush_motility(ind_tag)
+    add_me <- longterm_individual_evenness(ind_tag, t)
+    graph_list <- c(graph_list, list(add_me))
+  }
+  do.call('grid.arrange', c(graph_list, top = spec_name))
+}
+```
+
+```{r}
+get_longterm_motility <- function(det_df, spec_name, num_years, length) {
+  det <- det_df
+  new_dets <- det %>% get_longterm_fish(spec_name, num_years) %>%
+    get_specific_tags(det)
+  long_years <- get_years(new_dets, spec_name)
+  motility <- get_species_motility(new_dets, spec_name, long_years, length)
+  return(motility)
+}
+```
+
+```{r}
+clean_motility <- function(df_motility, fish_length, n_dets) {
+  motility <- df_motility
+  motility <- motility[motility$length > fish_length, ]
+  all_tags <- unique(motility$tag)
+  new_motility <- NULL
+  for (t in all_tags) {
+    ind_tag <- subset(motility, t == tag)
+    if (nrow(ind_tag) >= n_dets) {
+      new_motility <- rbind(new_motility, ind_tag)
+    }
+  }
+  return(new_motility)
+}
+```
+
+
+```{r}
+get_motility_longterm <- function(df_det, species_name, num_length, num_years = 7) {   #USE THIS ONE
+  longterm_det <- df_det %>% get_longterm_fish(species_name, n_years = num_years, int_length = num_length) %>%
+    get_specific_tags(df_det)
+  longterm_years <- get_years(longterm_det)
+  long_motility <- get_species_motility_longterm(longterm_det, species_name) #%>%
+    #clean_motility(num_length, num_years)
+  return(long_motility)
+}
+
+```
+
+```{r}
+get_longterm_proportionality <- function(df_motility) {
+  df <- df_motility
+  all_tags <- unique(df$tag)
+  df_proportion <- NULL
+  for (t in all_tags) {
+    print(t)
+    ind_tag <- subset(ws_longterm_motility, tag == t)
+    ind_tag$proportion <- NA
+    fish_rkm <- sum(ind_tag$total_rkm)
+    all_rows <- c(1:nrow(ind_tag))
+    for (row in all_rows) {
+      ind_tag$proportion[row] <- ind_tag$total_rkm[row]/fish_rkm
+    }
+    ind_tag <- ind_tag[order(ind_tag$proportion, decreasing = TRUE), ]
+    ind_tag$index <- c(1:nrow(ind_tag))
+    df_proportion <- rbind(df_proportion, ind_tag)
+  }
+  return(df_proportion)
+}
+```
+
+
+
+```{r}
+ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_years=5, 600)
+ws_longterm_prop <- get_longterm_proportionality(ws_longterm_motility)
+get_longterm_plots(ws_longterm_prop, 'Longerm White Sturgeon Evenness')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_years=5, 600)
+get_longterm_plots(ws_longterm_motility, 'Longerm White Sturgeon Evenness')
+
+gs_longterm_motility <- get_motility_longterm(new_det, 'Green_Sturgeon', 1300)
+get_longterm_plots(gs_longterm_motility, 'Longterm Green Sturgeon Evenness')
+
+steel_longterm_motility <- get_motility_longterm(new_det, 'Steelhead', num_years=2, 350) #Only works for fish over 2 years
+get_longterm_plots(steel_longterm_motility, 'Longterm Steelhead Evenness')
+
+striped_longterm_motility <- get_motility_longterm(new_det, 'Striped_bass', 2, 580)
+get_longterm_plots(striped_longterm_motility, 'Longterm Striped Bass Evenness')
+
+pikeminnow_longterm_motility <- get_motility_longterm(new_det, 'Sacramento_pikeminnow', 310)
+get_longterm_plots(pikeminnow_longterm_motility, 'Longterm Pikeminnow Evenness')
+```
+
+
+
+
+
+```{r}
+#Example
+
+
+white_longterm <- get_longterm_fish(new_det, 'White_Sturgeon')
+white_det <- get_specific_tags(new_det, white_longterm)
+longterm_years <- get_years(white_det, 'White_Sturgeon')
+long_motility <- get_species_motility(white_det, 'White_Sturgeon', longterm_years, 0)
+
+get_longterm_plots(long_motility)
+```
+
+
+```{r}
+
+ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', 600)
+gs_longterm_motility <- get_motility_longterm(new_det, 'Green_Sturgeon', 1300)
+steel_longterm_motility <- get_motility_longterm(new_det, 'Steelhead', num_years=2, 350)
+striped_longterm_motility <- get_motility_longterm(new_det, 'Striped_bass', 580)
+pikeminnow_longterm_motility <- get_motility_longterm(new_det, 'Sacramento_pikeminnow', 310)
+
+
+
+get_longterm_plots(ws_longterm_motility, 'White Sturgeon')
+get_longterm_plots(gs_longterm_motility, 'Longterm Green Sturgeon Evenness')
+get_longterm_plots(steel_longterm_motility, 'Longterm Steelhead Evenness')
+get_longterm_plots(striped_longterm_motility, 'Longterm Striped Bass Evenness')
+get_longterm_plots(pikeminnow_longterm_motility, 'Longterm Pikeminnow Evenness')
+```
+
+
+
+```
+
+
