@@ -17,6 +17,8 @@ library(gridExtra)
 library(vegan)
 library(lubridate)
 library(readr)
+library(gglorenz)
+library(ineq)
 ```
 
 ** Load the Following Functions Prior to Executing Example Code **
@@ -40,7 +42,7 @@ lm_eqn <- function(df){
 get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_startdate='2000-01-01 00:00:00', str_enddate='2100-01-01 00:00:00', study_year_month) {
   det <- df[df$Detect_rkm > low_rkm & df$Detect_rkm < high_rkm, ] #Takes detections only within specified rkms
   det <- df[df$DetectDate > as.character(str_startdate) & df$DetectDate < as.character(str_enddate), ] #takes detections only within certain dates #Maybe change as.character back?
-  #GLOBALdet <<- det 
+  #GLOBALdet <<- det
   df_allmoves <- NULL
   print(nrow(det))
   if (nrow(det) > 0) {
@@ -50,7 +52,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
     #det <- det[is.na(det$Release_rkm) == FALSE, ]
     number_detections <- nrow(det) #number of detections in a single year
     all_tags <- c(unique(det$TagID))
-    number_fish <- length(all_tags) #number of individuals detected in a single year.
+    number_fish <- length(all_tags) #number of individuals detected in a single year. Make sure that these are fish above the specifed length!!!
     
     count <- 1
     total_count <- length(all_tags)
@@ -73,7 +75,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
           total_rkm <- release_rkm - ind_tag$Detect_rkm[1]
         }
         else {
-          total_rkm <- 0
+          total_rkm <- 0  #This would be if the releaseRKM is NULL, then you take the hit on this information.
         }
         for (row in all_rows) {
           first_rkm <- ind_tag$Detect_rkm[row]
@@ -92,6 +94,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
       }
     }
   }
+  #Add a statement that will add bins to the analysis, will need to change how it makes the ggplots in other functions
   return(df_allmoves)
 }
 ```
@@ -190,7 +193,7 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
   for (y in all_years) {
     print(y)
     proportion <- subset(df_prop, year == y)
-    print(proportion)
+    #print(proportion)
     
     #calculate Rsquared, P value, slope, and intercept and plot them on each graph.
     #linear_mod <- lm(log10(proportion) ~ index, data=proportion) #does this need to be log transformed?
@@ -208,13 +211,15 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
     
     #want p_value, r2, slope, and intercept
     
-    #Calculate Pielous Index of Evenness for each year
-    proportion$proportion <- signif(proportion$proportion, digits = 5)
+    #Calculate Pielous Index of Evenness for current year
+    proportion$proportion <- signif(proportion$proportion, digits = 5)   ##### CHECK ON THIS!!!
     df_shannon <- proportion %>% group_by(proportion) %>% tally()
-    #print(df_shannon)
+    print(df_shannon)
     specnumber <- length(unique(df_shannon$proportion))
     shannon_index <- diversity(df_shannon$n)
-    pielou_index <- signif(shannon_index/(specnumber), digits = 3)
+    print(paste('Shannon Index:', shannon_index))
+    pielou_index <- signif(shannon_index/(log(specnumber)), digits = 3)
+    print(paste('Pielou Index:', pielou_index))
     year <- y
     
     a <- lm(proportion ~ rank, proportion)
@@ -245,7 +250,8 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
       stat_smooth(method='lm', col='red', size=.4, se = FALSE, fullrange = TRUE) +
       #geom_smooth(method='lm', col='red', size=.4, se = FALSE) +
       scale_y_log10() +
-      coord_cartesian(ylim = c(.00001, 1), xlim = c(0, 60)) #CHANGE THIS SO THAT IT JUST DOES DF WITH MOST FISH
+      coord_cartesian(ylim = c(.00001, 1), xlim = c(0, 60)) + #CHANGE THIS SO THAT IT JUST DOES DF WITH MOST FISH
+      theme_classic() #change theme to bw for white background, with gridlines
     #annotate('text', x=5, y=1, label = paste('P-Value:', p_value, '\n',
     #'R2 Value:',  r2, '\n',
     # 'Slope:', beta.estimate, '\n',
@@ -331,6 +337,174 @@ determine_relevant_periods <- function(df_det, df_date_ranges) { #WORKING
 ```
 
 
+```{r}
+assign_bins <- function(df_motility) { #Easy to switch from motility to proportionality
+  df <- df_motility
+  df$bin <- NA
+  all_years <- unique(df$year)
+  for (y in all_years) {
+    #calculate bins for ind_year
+    ind_year <- subset(df, year == y)
+    max_rkm <- max(ind_year$rkm)
+    rounded_max <- round_up(max_rkm, 50)
+    bins <- binning(ind_year$rkm, breaks = seq(0, rounded_max, by = 50))
+    count_vector <- bins$counts
+    break_vector <- bins$breaks
+    bv_elements <- c(1:length(break_vector))
+    new_break_vector <- c()
+    for (num in bv_elements) {
+      if (num == length(break_vector)) {
+        break
+      }
+      range <- paste(break_vector[num], '-', break_vector[num + 1], sep = '')
+      print(range)
+      new_break_vector[num] <- range
+    }
+    print(new_break_vector)
+    
+    #break_vector <- break_vector[2:length(break_vector)]
+    new_df <- data.frame(count_vector, new_break_vector)
+  }
+return(new_df)
+}
+```
+
+
+```{r}
+get_rank_plots_proportions_new_pielous <- function(df_prop, pdf_name) {
+  pdf(paste(pdf_name, ".pdf", sep = "" ),width = 11, height = 8)
+  graph_list <- list()
+  df_lm_equations <- NULL
+  year_list <- determine_years_rank_plots(df_prop, df_all_years)
+  print(year_list)
+  first_year <- year_list$year[1]
+  last_year <- year_list$year[nrow(year_list)]
+  all_years <- unique(year_list$year)
+  species_name <- as.character(df_prop$species[1])
+  for (y in all_years) {
+    print(y)
+    proportion <- subset(df_prop, year == y)
+    
+    #Have the option to remove fish with zero values, this needs to change based on if the detection was at the GG or within the array.
+    proportion <- subset(proportion, proportion > 0)
+    #print(proportion)
+    
+    #calculate Rsquared, P value, slope, and intercept and plot them on each graph.
+    #linear_mod <- lm(log10(proportion) ~ index, data=proportion) #does this need to be log transformed?
+    #model_summary <- summary(linear_mod)
+    #model_coef <- model_summary$coefficients
+    #r2 <- signif(model_summary$r.squared, digits = 3)
+    #beta.estimate <- signif(model_coef['index', 'Estimate'], digits=3) # slope?
+    #intercept <- signif(model_coef['(Intercept)', 'Estimate'], digits=3) #intercept
+    #std.error <- signif(model_coef['index', 'Std. Error'], digits=3)
+    #t_value <- beta.estimate/std.error
+    #p_value <- signif(2*pt(-abs(t_value), df=nrow(proportion)-ncol(proportion)), digits = 3)
+    
+    #v_all_values <- c(r2, p_value)
+    #df_all_values <- data.frame(v_all_values)
+    
+    #want p_value, r2, slope, and intercept
+    
+    #Calculate Pielous Index of Evenness for current year
+    #proportion$proportion <- signif(proportion$proportion, digits = 5)   ##### CHECK ON THIS!!!
+    #df_shannon <- proportion %>% group_by(proportion) %>% tally()
+    #print(df_shannon)
+    #specnumber <- length(unique(df_shannon$proportion))
+    #shannon_index <- diversity(df_shannon$n)
+    #print(paste('Shannon Index:', shannon_index))
+    #pielou_index <- signif(shannon_index/(log(specnumber)), digits = 3)
+    #print(paste('Pielou Index:', pielou_index))
+    #year <- y
+    
+    df_shannon <- assign_bins(proportion)
+    df_shannon <- df_shannon[df_shannon$count_vector > 0, ]
+    num_categories <- nrow(df_shannon) #since there is a unique value for each row, this will be the number of possible categories
+    shannon_index <- diversity(df_shannon$count_vector)
+    print(paste('Shannon Index:', shannon_index))
+    pielou_index <- signif(shannon_index/(log(num_categories)), digits = 3)
+    print(paste('Pielou Index:', pielou_index))
+    year <- y
+    
+    
+    
+    a <- lm(proportion ~ rank, proportion)
+    a <- coef(a)
+    intercept <- signif(as.numeric(as.character(a[1])), digits=4)
+    slope <- signif(as.numeric(as.character(a[2])), digits=4)
+    equation <- paste('y=', slope, 'x + ', intercept, sep='')
+    
+    add_me <- data.frame(year, pielou_index, intercept, slope, equation)
+    df_lm_equations <- rbind(df_lm_equations, add_me)
+    
+    print(pielou_index)
+    p <- ggplot(data = proportion, aes(x= rank, y= proportion)) + 
+      geom_point() + 
+      geom_line() +
+      theme(legend.position = 'none') +
+      xlab('Rank') +
+      ylab('Motility Proportion') +
+      ggtitle(y) +
+      #ggtitle(paste(study_year, 'Rank vs proportion of', species_name, 'in Sacramento/San Joaquin Watershed')) +
+      theme(plot.title = element_text(size = 10, face = "bold")) +
+      theme(axis.title = element_text(size=8)) +
+      #coord_cartesian(ylim = c(0, 1)) +
+      annotate('text', x=nrow(proportion)/2, y=.5, label = paste('Index of Evenness:', pielou_index, sep = ' '), size = 2.5) +
+      geom_text(x = nrow(proportion)/2, y = .1, label = lm_eqn(proportion), parse = TRUE, size = 2.5) +
+      #scale_x_continuous(limits = c(0, 65), breaks = seq(0, 65, by = 10)) +
+      #scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 1)) +
+      stat_smooth(method='lm', col='red', size=.4, se = FALSE, fullrange = TRUE) +
+      #geom_smooth(method='lm', col='red', size=.4, se = FALSE) +
+      scale_y_log10() +
+      coord_cartesian(ylim = c(.00001, 1), xlim = c(0, 60)) + #CHANGE THIS SO THAT IT JUST DOES DF WITH MOST FISH
+      theme_classic() #change theme to bw for white background, with gridlines
+    #annotate('text', x=5, y=1, label = paste('P-Value:', p_value, '\n',
+    #'R2 Value:',  r2, '\n',
+    # 'Slope:', beta.estimate, '\n',
+    #'Intercept:', intercept), size=2.5)
+    
+    graph_list <- c(graph_list, list(p))
+  }
+  do.call('grid.arrange', c(graph_list, top = paste(species_name, 'Proportion vs Rank', first_year, 'to', last_year)))
+  dev.off()
+  cat('\n', 'Do you want a CSV with linear regression equations?   y or n?    ', '\n\n')
+  answer <- scan(what = 'character', n=1)
+  if (answer == 'y') {
+    write.csv(df_lm_equations, 'Linear Regression Equations.csv')
+    print('CSV Created')
+  }
+  if (answer == 'n') {
+    print('No CSV created.')
+  }
+  return(df_lm_equations)
+}
+```
+
+
+```{r}
+get_lorenz_with_gini <- function(df_proportion, pdf_title) {
+  pdf(paste(pdf_title, '.pdf', sep = ''))
+  all_years <- c(2006:2017)
+  glist <- NULL
+  for (y in all_years) {
+    print(y)
+    ind_year <- subset(df_proportion, year == y)
+    gini_index <- signif(ineq(ind_year$rkm), digits = 3)
+    p <- ggplot(data = ind_year, aes(proportion)) +
+      ggtitle(y) +
+      stat_lorenz(desc = FALSE) +
+      coord_fixed() +
+      geom_abline(linetype = "dashed") +
+      theme(axis.title = element_text(size = 6), plot.title = element_text(size = 8)) +
+      annotate('text', x = .25, y = .75, label = gini_index)
+  glist <- c(glist, list(p))
+  }
+  do.call('grid.arrange', c(glist, top = 'Lorenz Curves for Green Sturgeon 2006-2017'))
+  dev.off()
+}
+```
+
+
+
 Example Code:
 ```{r}
 df_all_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/water_year_data.csv", 
@@ -342,7 +516,13 @@ new_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/GREEN STURGEON 
 
 
 gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300, df_all_years)
-lm_equations_gs <- gsturg_motility %>% get_proportionality() %>% get_rank_plots_proportions('PDF Name')
+new_mot <- gsturg_motility[!(gsturg_motility$total_rkm <= 2 & substr(gsturg_motility$last_location, 1, 2) == 'GG'), ] #removes fish only detected at GG bridge
+
+lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_proportions_new_pielous('Test Binning') 
+#OR
+lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_proportions('PDF Name')
+#OR
+lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_gini('GS All Years with Gini Coefficient')
 ```
 
 

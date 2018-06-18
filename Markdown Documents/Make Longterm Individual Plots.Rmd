@@ -301,6 +301,8 @@ get_longterm_proportionality <- function(df_motility) {
 
 
 
+
+Example:
 ```{r}
 ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_years=5, 600)
 ws_longterm_prop <- get_longterm_proportionality(ws_longterm_motility)
@@ -320,7 +322,8 @@ get_longterm_plots(ws_longterm_prop, 'Longerm White Sturgeon Evenness')
 
 
 
-
+Ignore Everything Below this Point
+******************************************************************************
 
 
 
