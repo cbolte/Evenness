@@ -324,6 +324,27 @@ longterm_lorenz_with_gini <- function(df_proportion, pdf_title) { #Need to work 
 ```
 
 
+Runthrough Code:
+```{r}
+det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/IsThisACSV.csv")
+df_all_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/water_year_data.csv", 
+                         col_types = cols(end_date = col_character(), 
+                                          start_date = col_character()))
+
+new_det <- select(det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length, Length_Type, Tag_Type)
+
+
+ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_length = 0)
+ws_longterm_prop <- get_longterm_proportionality(ws_longterm_motility)
+get_longterm_plots(ws_longterm_prop, 'Longterm White Sturgeon Evenness')
+longterm_lorenz_with_gini(ws_longterm_prop, 'Longterm White Sturgeon Lorenz')
+
+
+
+```
+
+
+
 Example:
 ```{r}
 ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_length = 0)

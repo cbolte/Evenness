@@ -319,6 +319,71 @@ get_lorenz_interspecies <- function(df_proportion, species_name) {
 }
 ```
 
+
+Runthrough Code:
+
+```{r}
+#Get Interspecies Plots along with Gini Index and Loren Graphs
+
+all_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/IsThisACSV.csv", 
+                    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
+
+gs_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/GREEN STURGEON DETECTIONS CLEAN.csv", 
+                   col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
+
+df_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/water_year_data.csv", 
+                         col_types = cols(end_date = col_character(), 
+                                          start_date = col_character()))
+
+det <- select(all_det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length, Length_Type, Tag_Type)
+det <- subset(det, Species == 'White_Sturgeon' | Species == 'Striped_bass' | Species == 'Sacramento_pikeminnow' | Species == 'Steelhead')
+
+
+#Get Motilities
+gsturg_motility <- get_species_motility(gs_det, 'Green_Sturgeon', 1300)
+wsturg_motility <- get_species_motility(det, 'White_Sturgeon', 600)
+striped_motility <- get_species_motility(det, 'Striped_bass', 580)
+pike_motility <- get_species_motility(det, 'Sacramento_pikeminnow', 310)
+steelhead_motility <- get_species_motility(det, 'Steelhead',350)
+
+#Condense Detections and Convert To Proportionality
+all_green <- smush_motility(gsturg_motility) %>% get_proportionality_total()
+all_white <- smush_motility(wsturg_motility) %>% get_proportionality_total()
+all_striped <- smush_motility(striped_motility) %>% get_proportionality_total()
+all_pike <- smush_motility(pike_motility) %>% get_proportionality_total()
+all_steelhead <- smush_motility(steelhead_motility) %>% get_proportionality_total()
+
+#Assemble Plots of All Fish
+
+a <- all_years_evenness_gini(all_steelhead, 'All Steelhead Evenness')
+b <- all_years_evenness_gini(all_striped, 'All Striped Bass Evenness')
+c <- all_years_evenness_gini(all_white, 'All White Sturgeon Evenness')
+d <- all_years_evenness_gini(all_green, 'All Green Sturgeon Evenness')
+e <- all_years_evenness_gini(all_pike, 'All Sacramento Pikeminnow Evenness')
+
+g_list <- list(a, b, c, d, e)
+
+#Generate Plot from list elements
+do.call('grid.arrange', c(g_list))
+
+
+#Make Lorenz Charts of Each Fish
+
+f <- get_lorenz_interspecies(all_green, 'Green Sturgeon')
+g <- get_lorenz_interspecies(all_white, 'White Sturgeon')
+h <- get_lorenz_interspecies(all_pike, 'Sacramento Pikeminnow')
+i <- get_lorenz_interspecies(all_steelhead, 'Steelhead')
+j <- get_lorenz_interspecies(all_striped, 'Striped Bass')
+
+lorenz_list <- list(f, g, h, i, j)
+do.call('grid.arrange', c(lorenz_list, top = 'Interspecies Lorenz Charts with Gini Index'))
+
+
+
+```
+
+
+
 Updated Example Code:
 
 ```{r}

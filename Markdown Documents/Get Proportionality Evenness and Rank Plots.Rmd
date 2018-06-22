@@ -281,13 +281,13 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
 
 
 ```{r}
-get_species_motility <- function(df, species_id, int_length) { ###Add this to Markdown Documents !!!
+get_species_motility <- function(df, species_id, int_length, df_period) { ###Add this to Markdown Documents !!!
   ind_species <- subset(df, Species == species_id)
   ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE)
   ind_species <- subset(ind_species, Length != 'NULL')
   ind_species$Length <- as.numeric(ind_species$Length)
   ind_species <- subset(ind_species, Length > int_length)
-  df_year_info <- determine_years(ind_species)
+  df_year_info <- determine_relevant_periods(ind_species, df_period)
   all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info) %>%  purge_ggfish() %>%  add_rank_byyear()
   return(all_motilities)
 }
@@ -509,7 +509,9 @@ get_rank_plots_proportions_new_pielous <- function(df_prop, pdf_name) {
 ```
 
 ```{r}
-get_rank_plots_gini <- function(df_prop, pdf_name) {
+get_rank_plots_gini <- function(df_proportion, pdf_name) {
+  df_prop <- df_proportion
+  df_prop <- df_prop[is.nan(df_prop$proportion) == FALSE, ]
   pdf(paste(pdf_name, ".pdf", sep = "" ),width = 11, height = 8)
   graph_list <- list()
   df_lm_equations <- NULL
@@ -581,13 +583,16 @@ get_rank_plots_gini <- function(df_prop, pdf_name) {
 
 
 ```{r}
-get_lorenz_with_gini <- function(df_proportion, pdf_title) { #Need to work on this so that it's more autonomous and picks years selectively. Could be as simple as adding a unique function for all years since it should already be sorted by year.
+get_lorenz_with_gini <- function(df_proportion, pdf_title, plot_title) { 
+  df_prop <- df_proportion
+  df_prop <- df_prop[is.nan(df_prop$proportion) == FALSE, ]
   pdf(paste(pdf_title, '.pdf', sep = ''))
-  all_years <- c(2006:2017)
+  all_years <- unique(df_prop$year)
   glist <- NULL
+  
   for (y in all_years) {
     print(y)
-    ind_year <- subset(df_proportion, year == y)
+    ind_year <- subset(df_prop, year == y)
     gini_index <- signif(ineq(ind_year$rkm), digits = 3)
     p <- ggplot(data = ind_year, aes(proportion)) +
       ggtitle(y) +
@@ -598,9 +603,46 @@ get_lorenz_with_gini <- function(df_proportion, pdf_title) { #Need to work on th
       annotate('text', x = .25, y = .75, label = gini_index)
   glist <- c(glist, list(p))
   }
-  do.call('grid.arrange', c(glist, top = 'Lorenz Curves for Green Sturgeon 2006-2017'))
+  do.call('grid.arrange', c(glist, top = plot_title))
   dev.off()
 }
+```
+
+Runthrough Code:
+
+```{r}
+df_all_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/water_year_data.csv", 
+                         col_types = cols(end_date = col_character(), 
+                                          start_date = col_character()))
+
+new_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/GREEN STURGEON DETECTIONS CLEAN.csv", 
+                    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
+
+
+all_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/IsThisACSV.csv", 
+                    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
+all_det <- select(all_det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length, Length_Type, Tag_Type)
+all_det <- subset(all_det, Species == 'White_Sturgeon' | Species == 'Striped_bass' | Species == 'Sacramento_pikeminnow' | Species == 'Steelhead')
+
+
+gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300, df_all_years)
+wsturg_motility <- get_species_motility(all_det, 'White_Sturgeon', 600, df_all_years)
+striped_motility <- get_species_motility(all_det, 'Striped_bass', 580, df_all_years)
+pike_motility <- get_species_motility(all_det, 'Sacramento_pikeminnow', 310, df_all_years)
+steelhead_motility <- get_species_motility(all_det, 'Steelhead',350, df_all_years)
+
+
+lm_equations_gs <- gsturg_motility %>% get_proportionality() %>% get_rank_plots_gini('Green Sturgeon All Years with Gini Coefficient')
+lm_equations_ws <- wsturg_motility %>% get_proportionality() %>% get_rank_plots_gini('White Sturgeon All Years with Gini Coefficient')
+lm_equations_striped <- striped_motility %>% get_proportionality() %>% get_rank_plots_gini('Striped Bass All Years with Gini Coefficient')
+lm_equations_pike <- pike_motility %>% get_proportionality() %>% get_rank_plots_gini('Pikeminnow All Years with Gini Coefficient')
+lm_equations_sth <- steelhead_motility %>% get_proportionality() %>% get_rank_plots_gini('Steelhead All Years with Gini Coefficient') # Not Working
+
+gsturg_motility %>% get_proportionality() %>% get_lorenz_with_gini('Green Sturgeon Lorenz', 'Green Sturgeon Lorenz Plots')
+wsturg_motility %>% get_proportionality() %>% get_lorenz_with_gini('White Sturgeon Lorenz', 'White Sturgeon Lorenz Plots')
+striped_motility %>% get_proportionality() %>% get_lorenz_with_gini('Striped Bass Lorenz', 'Striped Bass Lorenz Plots')
+pike_motility %>% get_proportionality() %>% get_lorenz_with_gini('Pikeminnow Lorenz', 'Pikeminnow Lorenz Plots')
+steelhead_motility %>% get_proportionality() %>% get_lorenz_with_gini('Steelhead Lorenz', 'Steelhead Lorenz Plots')
 ```
 
 
@@ -616,7 +658,7 @@ new_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/GREEN STURGEON 
 
 
 gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300, df_all_years)
-new_mot <- gsturg_motility[!(gsturg_motility$total_rkm <= 2 & substr(gsturg_motility$last_location, 1, 2) == 'GG'), ] #removes fish only detected at GG bridge
+#new_mot <- gsturg_motility[!(gsturg_motility$total_rkm <= 2 & substr(gsturg_motility$last_location, 1, 2) == 'GG'), ] #removes fish only detected at GG bridge
 
 lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_proportions_new_pielous('Test Binning') 
 #OR
@@ -632,7 +674,7 @@ lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_gini('GS
 #wsturg_motility <- get_species_motility(new_det, 'White_Sturgeon', 600)
 #striped_motility <- get_species_motility(new_det, 'Striped_bass', 580)
 #pike_motility <- get_species_motility(new_det, 'Sacramento_pikeminnow', 310)
-#teelhead_motility <- get_species_motility(new_det, 'Steelhead',350)
+#steelhead_motility <- get_species_motility(new_det, 'Steelhead',350)
 
 #get_rank_plots(gsturg_motility, 'Green Sturgeon Evenness by Year')
 #get_rank_plots(wsturg_motility, 'White Sturgeon Evenness by Year')
