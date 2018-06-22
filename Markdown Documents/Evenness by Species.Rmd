@@ -13,11 +13,14 @@ library(ggplot2)
 library(gridExtra)
 library(vegan)
 library(lubridate)
+library(readr)
+library(gglorenz)
+library(ineq)
 ```
 
 ```{r}
 #library(readr)
-new_det <- select(det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length_Type, Tag_Type)
+#new_det <- select(det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length_Type, Tag_Type)
 
 ```
 
@@ -47,7 +50,7 @@ then combine these variables into a list, the use the do.call() function with gr
 get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_startdate='2000-01-01 00:00:00', str_enddate='2100-01-01 00:00:00', study_year_month) {
   det <- df[df$Detect_rkm > low_rkm & df$Detect_rkm < high_rkm, ] #Takes detections only within specified rkms
   det <- df[df$DetectDate > as.character(str_startdate) & df$DetectDate < as.character(str_enddate), ] #takes detections only within certain dates #Maybe change as.character back?
-  #GLOBALdet <<- det 
+  #GLOBALdet <<- det
   df_allmoves <- NULL
   print(nrow(det))
   if (nrow(det) > 0) {
@@ -55,8 +58,9 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
     det$Release_rkm <- as.numeric(det$Release_rkm)
     det <- det[is.na(det$Detect_rkm) == FALSE, ]
     #det <- det[is.na(det$Release_rkm) == FALSE, ]
-    print(nrow(det))
+    number_detections <- nrow(det) #number of detections in a single year
     all_tags <- c(unique(det$TagID))
+    number_fish <- length(all_tags) #number of individuals detected in a single year. Make sure that these are fish above the specifed length!!!
     
     count <- 1
     total_count <- length(all_tags)
@@ -79,14 +83,15 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
           total_rkm <- release_rkm - ind_tag$Detect_rkm[1]
         }
         else {
-          total_rkm <- 0
+          total_rkm <- 0  #This would be if the releaseRKM is NULL, then you take the hit on this information.
         }
         for (row in all_rows) {
           first_rkm <- ind_tag$Detect_rkm[row]
           second_rkm <- ind_tag$Detect_rkm[row + 1]
           if (row == nrow(ind_tag)) { #may need to add some subtleties to make sure that if the last detection is different from the second to last that this gets accounted for.
             species <- species_name
-            df_allmoves <- rbind(df_allmoves, data.frame(tag, total_rkm, species, study_year_month, length, first_det, last_det))
+            last_location <- ind_tag$Location[row]
+            df_allmoves <- rbind(df_allmoves, data.frame(study_year_month, tag, total_rkm, species, length, first_det, last_det, number_fish, number_detections, last_location))
             break
           }
           if (first_rkm != second_rkm) {
@@ -98,8 +103,10 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
       }
     }
   }
+  #Add a statement that will add bins to the analysis, will need to change how it makes the ggplots in other functions
   return(df_allmoves)
 }
+
 ```
 
 
@@ -173,20 +180,35 @@ lm_eqn <- function(df){
 
 
 ```{r}
-get_species_motility <- function(df, species_id, int_length) {
+get_species_motility <- function(df, species_id, int_length) { ###Add this to Markdown Documents !!!
   ind_species <- subset(df, Species == species_id)
   ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE)
   ind_species <- subset(ind_species, Length != 'NULL')
   ind_species$Length <- as.numeric(ind_species$Length)
   ind_species <- subset(ind_species, Length > int_length)
   df_year_info <- determine_years(ind_species)
-  all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info) #need to come up with a way to only select years that are relevant, AFTER filtering for length. This will be much faster.
+  all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info) %>%  purge_ggfish() %>%  add_rank_byyear()
   return(all_motilities)
 }
 
 ```
 
 
+```{r}
+add_rank_byyear <- function(df) { ### Add to Markdown Documents
+  det <- df
+  new_df <- NULL
+  all_years <- unique(det$study_year_month)
+  for (y in all_years) {
+    print(y)
+    ind_year <- subset(det, study_year_month == y)
+    ind_year <- ind_year[order(ind_year$total_rkm, decreasing = TRUE), ]
+    ind_year$index <- c(1:nrow(ind_year))
+    new_df <- rbind(new_df, ind_year)
+  }
+  return(new_df)
+}
+```
 
 
 ```{r}
@@ -244,6 +266,56 @@ get_proportionality_total <- function(df) {
   df_mot <- df_mot[order(df_mot$proportion, decreasing = TRUE), ]
   df_mot$rank <- c(1:nrow(df_mot))
   return(df_mot)
+}
+```
+
+```{r}
+purge_ggfish <- function(df, min_rkm = 2) {
+  new_mot <- df[!(df$total_rkm <= min_rkm & substr(df$last_location, 1, 2) == 'GG'), ]
+  return(new_mot)
+}
+```
+
+
+```{r}
+all_years_evenness_gini <- function(df, title) { #df should be a motility data.frame that has gone through the smush_motility function.
+  df_prop <- df
+  
+  #remove values that will log transform to infinity
+  #df_prop <- subset(df_prop, proportion > 0.0000)
+  
+  gini_index <- signif(ineq(df_prop$proportion, type = 'Gini'), digits = 3)
+  
+  ggplot(data = df_prop, aes(x=rank, y= proportion)) + 
+    geom_point() + 
+    geom_line() +
+    theme(legend.position = 'none') +
+    xlab('Rank') +
+    ylab('Proportion') +
+    ggtitle(title) +
+    #ggtitle(paste(study_year, 'Rank vs Proportion', species_name, 'in Sacramento/San Joaquin Watershed')) +
+    theme(plot.title = element_text(size = 10, face = "bold")) +
+    theme(axis.title = element_text(size=8)) +
+    coord_cartesian(ylim = c(0, .1)) + 
+    geom_smooth(method='lm', col='red', size=.25, se = FALSE) +
+    annotate('text', x=nrow(df_prop)/4, y=.025, label = paste('Gini Coefficient:', gini_index, sep = ' '), size = 2.5) + 
+    geom_text(x = nrow(df_prop)/3, y = .75, label = lm_eqn(df_prop), parse = TRUE, size = 2.5)
+}
+```
+
+```{r}
+get_lorenz_interspecies <- function(df_proportion, species_name) { 
+  df_prop <- df_proportion
+  gini_index <- signif(ineq(df_prop$proportion), digits = 3)
+  print(gini_index)
+  p <- ggplot(data = df_prop, aes(proportion)) +
+    ggtitle(species_name) +
+    stat_lorenz(desc = FALSE) +
+    coord_fixed() +
+    geom_abline(linetype = "dashed") +
+    theme(axis.title = element_text(size = 6), plot.title = element_text(size = 8)) +
+    annotate('text', x = .25, y = .75, label = paste('Gini Index', gini_index), size = 2)
+  return(p)
 }
 ```
 

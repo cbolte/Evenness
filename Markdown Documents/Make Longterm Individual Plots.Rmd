@@ -15,16 +15,18 @@ library(ggplot2)
 library(gridExtra)
 library(vegan)
 library(lubridate)
+library(ineq)
+library(gglorenz)
 ```
 
 
 
 
 ```{r}
-get_longterm_fish <- function(df, species_name, n_years = 7, int_length= 0) { 
-  det <- df
+get_longterm_fish <- function(df_detections, species_name, n_years = 7, int_length= 0) { 
+  det <- df_detections
   det <- subset(det, Species == species_name)
-  det <- subset(det, Length > int_length)
+  det <- subset(det, Length > int_length) #should reduce the size of the original 
   all_fish <- c(unique(det$TagID))
   df_longterm_fish <- NULL
   for (fish in all_fish) {
@@ -71,7 +73,7 @@ get_years <- function(df) {
   print(year_vector)
   df_spec_years <- NULL
 for (y in year_vector) {
-  ind_year <- subset(df_years, year == y)
+  ind_year <- subset(df_all_years, year == y)
   df_spec_years <- rbind(df_spec_years, ind_year)
   }
   return(df_spec_years)
@@ -85,7 +87,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
   det <- df[df$DetectDate > str_startdate & df$DetectDate < str_enddate, ] #takes detections only within certain dates
   df_allmoves <- NULL
   print(nrow(det))
-  print(head(det))
+  #print(head(det))
   if (nrow(det) > 0) {
     det$Detect_rkm <- as.numeric(det$Detect_rkm)
     det$Release_rkm <- as.numeric(det$Release_rkm)
@@ -97,6 +99,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
     total_count <- length(all_tags)
     print(species_name)
     for (tag in all_tags) {
+      print(tag)
       #Get fish that have been detected for over a specified number of years.
       print(paste(count, '/', total_count))
       ind_tag <- det[det$TagID == tag, ]
@@ -134,7 +137,7 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
 ```{r}
 get_species_motility_longterm <- function(df, species_id) {
   ind_species <- subset(df, Species == species_id)
-  ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE)
+  ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE) #Removes entries without any length
   ind_species <- subset(ind_species, Length != 'NULL')
   ind_species$Length <- as.numeric(ind_species$Length)
   #ind_species <- subset(ind_species, Length > int_length)
@@ -195,28 +198,23 @@ lm_eqn <- function(df){
 
 ```{r}
 longterm_individual_evenness <- function(df, tagid) {
-  motility <- df
+  df_prop <- df
   
-  motility$proportion <- signif(motility$proportion, digits = 5)
-  df_shannon <- motility %>% group_by(proportion) %>% tally()
-  specnumber <- length(unique(df_shannon$proportion))
-  shannon_index <- diversity(df_shannon$n)
-  pielou_index <- signif(shannon_index/(specnumber), digits = 3)
-  print(pielou_index)
+  gini_index <- signif(ineq(df_prop$proportion), 3)
   
-  ggplot(data = motility, aes(x= index, y= proportion)) + 
+  ggplot(data = df_prop, aes(x= index, y= proportion)) + 
     geom_point() + 
     geom_line() +
     theme(legend.position = 'none') +
     xlab('Rank') +
     ylab('Proportion') +
     ggtitle(tagid) +
-    #ggtitle(paste(study_year, 'Rank vs Motility of', species_name, 'in Sacramento/San Joaquin Watershed')) +
+    #ggtitle(paste(study_year, 'Rank vs Proportion of', species_name, 'in Sacramento/San Joaquin Watershed')) +
     #theme(plot.title = element_text(size = 10, face = "bold")) +
     #theme(axis.title = element_text(size=8)) +
-    coord_cartesian(ylim = c(0, 5)) + 
-    annotate('text', x=nrow(motility)/3, y=1, label = paste('Index of Evenness:', pielou_index, sep = ' '), size = 2.5) +
-    geom_text(x = nrow(motility)/2, y = .5, label = lm_eqn(motility), parse = TRUE, size = 2.5) +
+    coord_cartesian(ylim = c(0, 1)) + 
+    annotate('text', x=nrow(df_prop)/3, y=1, label = paste('Gini Index:', gini_index, sep = ' '), size = 2.5) +
+    geom_text(x = nrow(df_prop)/2, y = .5, label = lm_eqn(df_prop), parse = TRUE, size = 2.5) +
     geom_smooth(method='lm', col='red', size=.4, se = FALSE)
 }
 ```
@@ -229,7 +227,8 @@ get_longterm_plots <- function(df_motility, spec_name) {
   tags <- unique(det$tag)
   for (t in tags) {
     ind_tag <- subset(det, tag == t)
-    ind_tag <- smush_motility(ind_tag)
+    ind_tag <- ind_tag[order(ind_tag$proportion, decreasing = TRUE), ]
+    ind_tag$rank <- c(1:nrow(ind_tag))
     add_me <- longterm_individual_evenness(ind_tag, t)
     graph_list <- c(graph_list, list(add_me))
   }
@@ -241,8 +240,8 @@ get_longterm_plots <- function(df_motility, spec_name) {
 get_longterm_motility <- function(det_df, spec_name, num_years, length) {
   det <- det_df
   new_dets <- det %>% get_longterm_fish(spec_name, num_years) %>%
-    get_specific_tags(det)
-  long_years <- get_years(new_dets, spec_name)
+    get_specific_tags(det) 
+  long_years <- get_years(new_dets, spec_name) 
   motility <- get_species_motility(new_dets, spec_name, long_years, length)
   return(motility)
 }
@@ -267,11 +266,12 @@ clean_motility <- function(df_motility, fish_length, n_dets) {
 
 ```{r}
 get_motility_longterm <- function(df_det, species_name, num_length, num_years = 7) {   #USE THIS ONE
-  longterm_det <- df_det %>% get_longterm_fish(species_name, n_years = num_years, int_length = num_length) %>%
-    get_specific_tags(df_det)
-  longterm_years <- get_years(longterm_det)
+  longterm_fish <- df_det %>% get_longterm_fish(species_name, n_years = num_years, int_length = num_length)
+  longterm_det <- get_specific_tags(longterm_fish, df_det) #Makes a data.frame with only tags that have been detected for more than the specified number of years
+  test_target_fish <<- longterm_det
+  longterm_years <- get_years(longterm_det) #Determines the years that will need to be selected.
   long_motility <- get_species_motility_longterm(longterm_det, species_name) #%>%
-    #clean_motility(num_length, num_years)
+  #clean_motility(num_length, num_years)
   return(long_motility)
 }
 
@@ -300,13 +300,36 @@ get_longterm_proportionality <- function(df_motility) {
 ```
 
 
+```{r}
+longterm_lorenz_with_gini <- function(df_proportion, pdf_title) { #Need to work on this so that it's more autonomous and picks years selectively. Could be as simple as adding a unique function for all years since it should already be sorted by year.
+  pdf(paste(pdf_title, '.pdf', sep = ''))
+  all_tags <- unique(df_proportion$tag)
+  glist <- NULL
+  for (t in all_tags) {
+    print(t)
+    ind_tag <- subset(df_proportion, tag == t)
+    gini_index <- signif(ineq(ind_tag$proportion), digits = 3)
+    p <- ggplot(data = ind_tag, aes(proportion)) +
+      ggtitle(t) +
+      stat_lorenz(desc = FALSE) +
+      coord_fixed() +
+      geom_abline(linetype = "dashed") +
+      theme(axis.title = element_text(size = 6), plot.title = element_text(size = 8)) +
+      annotate('text', x = .25, y = .75, label = paste('Gini Index:', gini_index))
+    glist <- c(glist, list(p))
+  }
+  do.call('grid.arrange', c(glist, top = 'Lorenz Curves for Green Sturgeon 2006-2017'))
+  dev.off()
+}
+```
 
 
 Example:
 ```{r}
-ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_years=5, 600)
+ws_longterm_motility <- get_motility_longterm(new_det, 'White_Sturgeon', num_length = 0)
 ws_longterm_prop <- get_longterm_proportionality(ws_longterm_motility)
 get_longterm_plots(ws_longterm_prop, 'Longerm White Sturgeon Evenness')
+longterm_lorenz_with_gini(ws_longterm_prop, 'Test Longterm Lorenz')
 ```
 
 

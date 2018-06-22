@@ -82,7 +82,8 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
           second_rkm <- ind_tag$Detect_rkm[row + 1]
           if (row == nrow(ind_tag)) { #may need to add some subtleties to make sure that if the last detection is different from the second to last that this gets accounted for.
             species <- species_name
-            df_allmoves <- rbind(df_allmoves, data.frame(study_year_month, tag, total_rkm, species, length, first_det, last_det, number_fish, number_detections))
+            last_location <- ind_tag$Location[row]
+            df_allmoves <- rbind(df_allmoves, data.frame(study_year_month, tag, total_rkm, species, length, first_det, last_det, number_fish, number_detections, last_location))
             break
           }
           if (first_rkm != second_rkm) {
@@ -97,6 +98,25 @@ get_year_motility <- function(df, low_rkm=0, high_rkm=550, species_name, str_sta
   #Add a statement that will add bins to the analysis, will need to change how it makes the ggplots in other functions
   return(df_allmoves)
 }
+
+```
+
+
+```{r}
+add_rank_prop <- function(df) {
+  prop <- df
+  df_result <- NULL
+  all_years <- unique(df$year)
+  for (y in all_years) {
+    ind_year <- subset(prop, year == y)
+    ind_year <- ind_year[order(ind_year$proportion, decreasing=TRUE), ]
+    ind_year$rank <- c(1:nrow(ind_year))
+    print(ind_year)
+    df_result <- rbind(df_result, ind_year)
+  }
+  return(df_result)
+}
+
 ```
 
 
@@ -122,6 +142,7 @@ get_proportionality <- function(df) {
       df_proportion <- rbind(df_proportion, addme)
     }
   }
+  df_proportion <- add_rank_prop(df_proportion)
   return(df_proportion)
 }
 ```
@@ -192,37 +213,20 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
   species_name <- as.character(df_prop$species[1])
   for (y in all_years) {
     print(y)
-    proportion <- subset(df_prop, year == y)
-    #print(proportion)
+    ind_year <- subset(df_prop, year == y)
     
-    #calculate Rsquared, P value, slope, and intercept and plot them on each graph.
-    #linear_mod <- lm(log10(proportion) ~ index, data=proportion) #does this need to be log transformed?
-    #model_summary <- summary(linear_mod)
-    #model_coef <- model_summary$coefficients
-    #r2 <- signif(model_summary$r.squared, digits = 3)
-    #beta.estimate <- signif(model_coef['index', 'Estimate'], digits=3) # slope?
-    #intercept <- signif(model_coef['(Intercept)', 'Estimate'], digits=3) #intercept
-    #std.error <- signif(model_coef['index', 'Std. Error'], digits=3)
-    #t_value <- beta.estimate/std.error
-    #p_value <- signif(2*pt(-abs(t_value), df=nrow(proportion)-ncol(proportion)), digits = 3)
+    df_shannon <- select(ind_year, t, rkm) #makes data.frame that diversity uses.   t=TagID (Species)    rkm=total rkm (Abundance)
+    specnumber <- nrow(df_shannon)  # this is the number of TagIDs/Species
+    shannon_index <- diversity(df_shannon$rkm)  # I believe this function acts on the abundance portion of df_shannon
+    pielou_index <- signif(shannon_index/(log(specnumber)), digits = 3) ##CORRECT
     
-    #v_all_values <- c(r2, p_value)
-    #df_all_values <- data.frame(v_all_values)
-    
-    #want p_value, r2, slope, and intercept
-    
-    #Calculate Pielous Index of Evenness for current year
-    proportion$proportion <- signif(proportion$proportion, digits = 5)   ##### CHECK ON THIS!!!
-    df_shannon <- proportion %>% group_by(proportion) %>% tally()
     print(df_shannon)
-    specnumber <- length(unique(df_shannon$proportion))
-    shannon_index <- diversity(df_shannon$n)
     print(paste('Shannon Index:', shannon_index))
-    pielou_index <- signif(shannon_index/(log(specnumber)), digits = 3)
     print(paste('Pielou Index:', pielou_index))
+    #df_pielou_test <- rbind(df_pielou_test, data.frame(y, shannon_index, pielou_index))
     year <- y
     
-    a <- lm(proportion ~ rank, proportion)
+    a <- lm(proportion ~ rank, ind_year)
     a <- coef(a)
     intercept <- signif(as.numeric(as.character(a[1])), digits=4)
     slope <- signif(as.numeric(as.character(a[2])), digits=4)
@@ -231,8 +235,8 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
     add_me <- data.frame(year, pielou_index, intercept, slope, equation)
     df_lm_equations <- rbind(df_lm_equations, add_me)
     
-    print(pielou_index)
-    p <- ggplot(data = proportion, aes(x= rank, y= proportion)) + 
+    print(pielou_index) #CORRECT
+    p <- ggplot(data = ind_year, aes(x= rank, y= proportion)) + 
       geom_point() + 
       geom_line() +
       theme(legend.position = 'none') +
@@ -243,8 +247,8 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
       theme(plot.title = element_text(size = 10, face = "bold")) +
       theme(axis.title = element_text(size=8)) +
       #coord_cartesian(ylim = c(0, 1)) +
-      annotate('text', x=nrow(proportion)/2, y=.5, label = paste('Index of Evenness:', pielou_index, sep = ' '), size = 2.5) +
-      geom_text(x = nrow(proportion)/2, y = .1, label = lm_eqn(proportion), parse = TRUE, size = 2.5) +
+      annotate('text', x=nrow(ind_year)/2, y=.5, label = paste('Index of Evenness:', pielou_index, sep = ' '), size = 2.5) +
+      geom_text(x = nrow(ind_year)/2, y = .1, label = lm_eqn(ind_year), parse = TRUE, size = 2.5) +
       #scale_x_continuous(limits = c(0, 65), breaks = seq(0, 65, by = 10)) +
       #scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 1)) +
       stat_smooth(method='lm', col='red', size=.4, se = FALSE, fullrange = TRUE) +
@@ -277,17 +281,42 @@ get_rank_plots_proportions <- function(df_prop, pdf_name) {
 
 
 ```{r}
-get_species_motility <- function(df, species_id, int_length, year_data) {
+get_species_motility <- function(df, species_id, int_length) { ###Add this to Markdown Documents !!!
   ind_species <- subset(df, Species == species_id)
   ind_species <- subset(ind_species, is.null(ind_species$Length) == FALSE)
   ind_species <- subset(ind_species, Length != 'NULL')
   ind_species$Length <- as.numeric(ind_species$Length)
   ind_species <- subset(ind_species, Length > int_length)
-  df_year_info <- determine_relevant_periods(ind_species, year_data)
-  all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info) #need to come up with a way to only select years that are relevant, AFTER filtering for length. This will be much faster.
+  df_year_info <- determine_years(ind_species)
+  all_motilities <- ind_species %>% get_all_motilities_years(species_id, df_year_info) %>%  purge_ggfish() %>%  add_rank_byyear()
   return(all_motilities)
 }
 
+```
+
+
+```{r}
+purge_ggfish <- function(df, min_rkm = 2) {
+  new_mot <- df[!(df$total_rkm <= min_rkm & substr(df$last_location, 1, 2) == 'GG'), ]
+  return(new_mot)
+}
+```
+
+
+```{r}
+add_rank_byyear <- function(df) { ### Add to Markdown Documents
+  det <- df
+  new_df <- NULL
+  all_years <- unique(det$study_year_month)
+  for (y in all_years) {
+    print(y)
+    ind_year <- subset(det, study_year_month == y)
+    ind_year <- ind_year[order(ind_year$total_rkm, decreasing = TRUE), ]
+    ind_year$index <- c(1:nrow(ind_year))
+    new_df <- rbind(new_df, ind_year)
+  }
+  return(new_df)
+}
 ```
 
 
@@ -479,9 +508,80 @@ get_rank_plots_proportions_new_pielous <- function(df_prop, pdf_name) {
 }
 ```
 
+```{r}
+get_rank_plots_gini <- function(df_prop, pdf_name) {
+  pdf(paste(pdf_name, ".pdf", sep = "" ),width = 11, height = 8)
+  graph_list <- list()
+  df_lm_equations <- NULL
+  year_list <- determine_years_rank_plots(df_prop, df_all_years)
+  print(year_list)
+  first_year <- year_list$year[1]
+  last_year <- year_list$year[nrow(year_list)]
+  all_years <- unique(year_list$year)
+  species_name <- as.character(df_prop$species[1])
+  for (y in all_years) {
+    print(y)
+    proportion <- subset(df_prop, year == y)
+    
+    #Have the option to remove fish with zero values, this needs to change based on if the detection was at the GG or within the array.
+    gini_index <- ineq(proportion$proportion, type = 'Gini')
+    gini_index <- signif(gini_index, digits = 3)
+    print(gini_index)
+    a <- lm(proportion ~ rank, proportion)
+    a <- coef(a)
+    intercept <- signif(as.numeric(as.character(a[1])), digits=4)
+    slope <- signif(as.numeric(as.character(a[2])), digits=4)
+    equation <- paste('y=', slope, 'x + ', intercept, sep='')
+    year <- y
+    add_me <- data.frame(year, gini_index, intercept, slope, equation)
+    df_lm_equations <- rbind(df_lm_equations, add_me)
+    
+
+    p <- ggplot(data = proportion, aes(x= rank, y= proportion)) + 
+      geom_point() + 
+      geom_line() +
+      theme(legend.position = 'none') +
+      xlab('Rank') +
+      ylab('Motility Proportion') +
+      ggtitle(y) +
+      #ggtitle(paste(study_year, 'Rank vs proportion of', species_name, 'in Sacramento/San Joaquin Watershed')) +
+      theme(plot.title = element_text(size = 10, face = "bold")) +
+      theme(axis.title = element_text(size=8)) +
+      #coord_cartesian(ylim = c(0, 1)) +
+      annotate('text', x=nrow(proportion)/2, y=.5, label = paste('Gini Index:', gini_index, sep = ' '), size = 2.5) +
+      geom_text(x = nrow(proportion)/2, y = .1, label = lm_eqn(proportion), parse = TRUE, size = 2.5) +
+      #scale_x_continuous(limits = c(0, 65), breaks = seq(0, 65, by = 10)) +
+      #scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 1)) +
+      stat_smooth(method='lm', col='red', size=.4, se = FALSE, fullrange = TRUE) +
+      #geom_smooth(method='lm', col='red', size=.4, se = FALSE) +
+      scale_y_log10() +
+      coord_cartesian(ylim = c(.00001, 1), xlim = c(0, 60)) + #CHANGE THIS SO THAT IT JUST DOES DF WITH MOST FISH
+      theme_classic() #change theme to bw for white background, with gridlines
+    #annotate('text', x=5, y=1, label = paste('P-Value:', p_value, '\n',
+    #'R2 Value:',  r2, '\n',
+    # 'Slope:', beta.estimate, '\n',
+    #'Intercept:', intercept), size=2.5)
+    
+    graph_list <- c(graph_list, list(p))
+  }
+  do.call('grid.arrange', c(graph_list, top = paste(species_name, 'Proportion vs Rank', first_year, 'to', last_year)))
+  dev.off()
+  cat('\n', 'Do you want a CSV with linear regression equations?   y or n?    ', '\n\n')
+  answer <- scan(what = 'character', n=1)
+  if (answer == 'y') {
+    write.csv(df_lm_equations, 'Linear Regression Equations.csv')
+    print('CSV Created')
+  }
+  if (answer == 'n') {
+    print('No CSV created.')
+  }
+  return(df_lm_equations)
+}
+```
+
 
 ```{r}
-get_lorenz_with_gini <- function(df_proportion, pdf_title) {
+get_lorenz_with_gini <- function(df_proportion, pdf_title) { #Need to work on this so that it's more autonomous and picks years selectively. Could be as simple as adding a unique function for all years since it should already be sorted by year.
   pdf(paste(pdf_title, '.pdf', sep = ''))
   all_years <- c(2006:2017)
   glist <- NULL
