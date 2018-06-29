@@ -19,6 +19,7 @@ library(lubridate)
 library(readr)
 library(gglorenz)
 library(ineq)
+library(opticut)
 ```
 
 ** Load the Following Functions Prior to Executing Example Code **
@@ -568,16 +569,25 @@ get_rank_plots_gini <- function(df_proportion, pdf_name) {
   }
   do.call('grid.arrange', c(graph_list, top = paste(species_name, 'Proportion vs Rank', first_year, 'to', last_year)))
   dev.off()
-  cat('\n', 'Do you want a CSV with linear regression equations?   y or n?    ', '\n\n')
-  answer <- scan(what = 'character', n=1)
-  if (answer == 'y') {
-    write.csv(df_lm_equations, 'Linear Regression Equations.csv')
-    print('CSV Created')
-  }
-  if (answer == 'n') {
-    print('No CSV created.')
-  }
-  return(df_lm_equations)
+  #cat('\n', 'Do you want a CSV with linear regression equations?   y or n?    ', '\n\n')
+  #answer <- scan(what = 'character', n=1)
+  #if (answer == 'y') {
+    #write.csv(df_lm_equations, 'Linear Regression Equations.csv')
+    #print('CSV Created')
+  #}
+  #if (answer == 'n') {
+    #print('No CSV created.')
+  #}
+  #return(df_lm_equations)
+}
+```
+
+```{r}
+smush_motility <- function(df) {
+  mot <- df
+  mot$index <- NULL
+  new_mot <- add_rank(mot)
+  return(new_mot)
 }
 ```
 
@@ -608,81 +618,80 @@ get_lorenz_with_gini <- function(df_proportion, pdf_title, plot_title) {
 }
 ```
 
+```{r}
+create_lorenz_rank <- function(df_proportion) {
+  
+  cc <- scales::seq_gradient_pal('mediumaquamarine', 'mediumaquamarine')(seq(0,1,length.out=12))
+
+  df_prop <- df_proportion
+  df_prop$rank <- c(1:nrow(df_prop))
+  a <-ggplot(data = df_prop, aes(x= rank, y= proportion, color = year)) + 
+    geom_line(size = 2.25, alpha = .8) +
+    theme(legend.position = 'none') +
+    xlab('Rank') +
+    ylab('Total Movement') +
+    coord_cartesian(ylim = c(0, .5), xlim = c(0, 400)) + #CHANGE THIS SO THAT IT JUST DOES DF WITH MOST FISH
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()) +
+    scale_color_manual(values=cc) +
+    theme(legend.position="none")
+  
+  df_lorenz <- df_prop %>% get_lorenz_values() %>% adjust_lorenz_values()
+  
+  b <- ggplot(df_lorenz, aes(x=p, y=L, color = year_vector)) + geom_line() +
+    scale_color_manual(values = cc) +
+    xlab('Cumulative % of Movement Observations') +
+    ylab('Total Movement') +
+    geom_abline(linetype = 'dashed') +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -1) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -2) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -3) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -4) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -5) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -6) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -7) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -8) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -9) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -10) +
+    geom_abline(linetype = 'dashed', slope = 1, intercept = -11) +
+    theme_bw() +
+    theme(legend.position="none") +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+  
+  plot_list <- list(a, b)
+    
+  combined_plot <- grid.arrange(a, b)
+  return(combined_plot)
+}
+```
+
+
 Runthrough Code:
 
 ```{r}
-df_all_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/water_year_data.csv", 
+
+#Import Water Year Data
+df_all_years <- read_csv("Z:/Shared/Projects/Evenness/CSVs/water_year_data.csv", 
                          col_types = cols(end_date = col_character(), 
                                           start_date = col_character()))
-
-new_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/GREEN STURGEON DETECTIONS CLEAN.csv", 
+#Import Detection Data
+new_det <- read_csv("Z:/Shared/Projects/Evenness/CSVs/All Green Sturgeon Detections.csv", 
                     col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
 
-
-all_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/IsThisACSV.csv", 
-                    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
-all_det <- select(all_det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length, Length_Type, Tag_Type)
-all_det <- subset(all_det, Species == 'White_Sturgeon' | Species == 'Striped_bass' | Species == 'Sacramento_pikeminnow' | Species == 'Steelhead')
-
-
+#Get Motility
 gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300, df_all_years)
-wsturg_motility <- get_species_motility(all_det, 'White_Sturgeon', 600, df_all_years)
-striped_motility <- get_species_motility(all_det, 'Striped_bass', 580, df_all_years)
-pike_motility <- get_species_motility(all_det, 'Sacramento_pikeminnow', 310, df_all_years)
-steelhead_motility <- get_species_motility(all_det, 'Steelhead',350, df_all_years)
 
+#Get Proportions
+gs_prop <- gsturg_motility %>% smush_motility() %>% get_proportionality()
 
-lm_equations_gs <- gsturg_motility %>% get_proportionality() %>% get_rank_plots_gini('Green Sturgeon All Years with Gini Coefficient')
-lm_equations_ws <- wsturg_motility %>% get_proportionality() %>% get_rank_plots_gini('White Sturgeon All Years with Gini Coefficient')
-lm_equations_striped <- striped_motility %>% get_proportionality() %>% get_rank_plots_gini('Striped Bass All Years with Gini Coefficient')
-lm_equations_pike <- pike_motility %>% get_proportionality() %>% get_rank_plots_gini('Pikeminnow All Years with Gini Coefficient')
-lm_equations_sth <- steelhead_motility %>% get_proportionality() %>% get_rank_plots_gini('Steelhead All Years with Gini Coefficient') # Not Working
+#Create Figure
+create_lorenz_rank(gs_prop)
 
-gsturg_motility %>% get_proportionality() %>% get_lorenz_with_gini('Green Sturgeon Lorenz', 'Green Sturgeon Lorenz Plots')
-wsturg_motility %>% get_proportionality() %>% get_lorenz_with_gini('White Sturgeon Lorenz', 'White Sturgeon Lorenz Plots')
-striped_motility %>% get_proportionality() %>% get_lorenz_with_gini('Striped Bass Lorenz', 'Striped Bass Lorenz Plots')
-pike_motility %>% get_proportionality() %>% get_lorenz_with_gini('Pikeminnow Lorenz', 'Pikeminnow Lorenz Plots')
-steelhead_motility %>% get_proportionality() %>% get_lorenz_with_gini('Steelhead Lorenz', 'Steelhead Lorenz Plots')
 ```
-
-
-
-Example Code:
-```{r}
-df_all_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/water_year_data.csv", 
-    col_types = cols(end_date = col_character(), 
-        start_date = col_character()))
-
-new_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/GREEN STURGEON DETECTIONS CLEAN.csv", 
-    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
-
-
-gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300, df_all_years)
-#new_mot <- gsturg_motility[!(gsturg_motility$total_rkm <= 2 & substr(gsturg_motility$last_location, 1, 2) == 'GG'), ] #removes fish only detected at GG bridge
-
-lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_proportions_new_pielous('Test Binning') 
-#OR
-lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_proportions('PDF Name')
-#OR
-lm_equations_gs <- new_mot %>% get_proportionality() %>% get_rank_plots_gini('GS All Years with Gini Coefficient')
-```
-
-
-```{r}
-#Get Motilities for each species
-#gsturg_motility <- get_species_motility(new_det, 'Green_Sturgeon', 1300)
-#wsturg_motility <- get_species_motility(new_det, 'White_Sturgeon', 600)
-#striped_motility <- get_species_motility(new_det, 'Striped_bass', 580)
-#pike_motility <- get_species_motility(new_det, 'Sacramento_pikeminnow', 310)
-#steelhead_motility <- get_species_motility(new_det, 'Steelhead',350)
-
-#get_rank_plots(gsturg_motility, 'Green Sturgeon Evenness by Year')
-#get_rank_plots(wsturg_motility, 'White Sturgeon Evenness by Year')
-#get_rank_plots(striped_motility, 'Striped Bass Evenness by Year')
-#get_rank_plots(pike_motility, 'Sacramento Pikeminnow Evenness by Year')
-#get_rank_plots(steelhead_motility, 'Steelhead Evenness by Year')
-```
-
 
 
 

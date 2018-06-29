@@ -319,19 +319,111 @@ get_lorenz_interspecies <- function(df_proportion, species_name) {
 }
 ```
 
+```{r}
+#species_name should be any of 'Green Sturgeon', 'White Sturgeon', 'Sacramento Pikeminnow', 'Steelhead', 'Striped Bass'
+all_years_evenness_species <- function(df, species_name) { #df should be a motility data.frame that has gone through the smush_motility function.
+  
+  #Will need to adjust position of Pielous index based on SPECIES
+  
+  df_prop <- df
+  species <- species_name
+  species_color <- NA
+  if (species_name == 'Green Sturgeon') { #Could add in a position for where Pielou's goes?
+    species_color <- 'mediumaquamarine'
+    p_location <- 110
+  }
+  if (species_name == 'White Sturgeon') {
+    species_color <- 'darkgoldenrod1'
+    p_location <- 18
+  }
+  if (species_name == 'Sacramento Pikeminnow') {
+    species_color <- 'black'
+    p_location <- 12
+  }
+  if (species_name == 'Steelhead') {
+    species_color <- 'deepskyblue2'
+    p_location <- 50
+  }
+  if (species_name == 'Striped Bass') {
+    species_color <- 'orangered2'
+    p_location <- 9
+  }
+  
+  select_df <- select(df_prop, study_year_month, total_rkm)
+  specnumber <- length(unique(select_df$t))
+  shannon_index <- diversity(select_df$total_rkm)
+  pielou_index <- signif(shannon_index/(log(specnumber)), digits = 2)
+  
+  ggplot(data = df_prop, aes(x=rank, y= proportion)) + 
+    geom_line(size = 2, color = species_color) +
+    theme(legend.position = 'none') +
+    #ggtitle(species) +
+    #ggtitle(paste(study_year, 'Rank vs df_prop of', species_name, 'in Sacramento/San Joaquin Watershed')) +
+    #theme(plot.title = element_text(size = 4, face = "bold")) +
+    scale_y_continuous(breaks = c(0.0, 0.2, 0.4)) +
+    coord_cartesian(ylim = c(0, .4), xlim <- c(1,nrow(df_prop))) + 
+    annotate('text', x=p_location, y=.35, label = paste("Pielou's Index:", pielou_index, sep = ' '), size = 3.5) + #change text on plot
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank())
+}
+```
+
+```{r}
+get_lorenz_interspecies <- function(df_proportion, species_name) { 
+  df_prop <- df_proportion
+  species <- species_name
+  species_color <- NA
+  if (species_name == 'Green Sturgeon') { #Could add in a position for where Pielou's goes?
+    species_color <- 'mediumaquamarine'
+  }
+  if (species_name == 'White Sturgeon') {
+    species_color <- 'darkgoldenrod1'
+  }
+  if (species_name == 'Striped Bass') {
+    species_color <- 'orangered2'
+  }
+  if (species_name == 'Sacramento Pikeminnow') {
+    species_color <- 'black'
+  }
+  if (species_name == 'Steelhead') {
+    species_color <- 'deepskyblue2'
+  }
+  gini_index <- signif(ineq(df_prop$proportion), digits = 2)
+  print(gini_index)
+  p <- ggplot(data = df_prop, aes(proportion)) +
+    #ggtitle(species_name) +
+    stat_lorenz(desc = FALSE, geom = 'line', color=species_color, size = 2) +
+    coord_fixed(1/4) +
+    geom_abline(linetype = "dashed") +
+    scale_y_continuous(breaks = c(0.0, 0.5, 1.0)) +
+    annotate('text', x = .22, y = .9, label = paste("Gini's Index", gini_index), size = 3.5) + #change text on plot
+    theme(plot.title = element_text(size = 6)) +
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    theme(axis.title.x=element_blank(), axis.title.y = element_blank()) 
+  
+    #theme(plot.margin = unit(c(0, 3, .2, .2), 'cm'))   # top, 
+  return(p)
+}
+
+```
+
 
 Runthrough Code:
 
 ```{r}
 #Get Interspecies Plots along with Gini Index and Loren Graphs
 
-all_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/IsThisACSV.csv", 
+all_det <- read_csv("Z:/Shared/Projects/Evenness/CSVs/All Core Array Detections.csv", 
                     col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
 
-gs_det <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/GREEN STURGEON DETECTIONS CLEAN.csv", 
+gs_det <- read_csv("Z:/Shared/Projects/Evenness/CSVs/All Green Sturgeon Detections.csv", 
                    col_types = cols(DetectDate = col_datetime(format = "%Y-%m-%d %H:%M:%S")))
 
-df_years <- read_csv("C:/Users/cbolte/Desktop/R Projects/Evenness/Excel and Csv/water_year_data.csv", 
+df_years <- read_csv("Z:/Shared/Projects/Evenness/CSVs/water_year_data.csv", 
                          col_types = cols(end_date = col_character(), 
                                           start_date = col_character()))
 
@@ -353,73 +445,35 @@ all_striped <- smush_motility(striped_motility) %>% get_proportionality_total()
 all_pike <- smush_motility(pike_motility) %>% get_proportionality_total()
 all_steelhead <- smush_motility(steelhead_motility) %>% get_proportionality_total()
 
-#Assemble Plots of All Fish
+#Assemble Rank/Pielous Plots of All Species
 
-a <- all_years_evenness_gini(all_steelhead, 'All Steelhead Evenness')
-b <- all_years_evenness_gini(all_striped, 'All Striped Bass Evenness')
-c <- all_years_evenness_gini(all_white, 'All White Sturgeon Evenness')
-d <- all_years_evenness_gini(all_green, 'All Green Sturgeon Evenness')
-e <- all_years_evenness_gini(all_pike, 'All Sacramento Pikeminnow Evenness')
+a <- all_years_evenness_species(all_green, 'Green Sturgeon')
+b <- all_years_evenness_species(all_white, 'White Sturgeon')
+c <- all_years_evenness_species(all_pike, 'Sacramento Pikeminnow')
+d <- all_years_evenness_species(all_steelhead, 'Steelhead')
+e <- all_years_evenness_species(all_striped, 'Striped Bass')
 
-g_list <- list(a, b, c, d, e)
-
-#Generate Plot from list elements
-do.call('grid.arrange', c(g_list))
-
-
-#Make Lorenz Charts of Each Fish
-
+#Create Lorenz/Gini Plots for All Species
 f <- get_lorenz_interspecies(all_green, 'Green Sturgeon')
 g <- get_lorenz_interspecies(all_white, 'White Sturgeon')
 h <- get_lorenz_interspecies(all_pike, 'Sacramento Pikeminnow')
 i <- get_lorenz_interspecies(all_steelhead, 'Steelhead')
 j <- get_lorenz_interspecies(all_striped, 'Striped Bass')
 
-lorenz_list <- list(f, g, h, i, j)
-do.call('grid.arrange', c(lorenz_list, top = 'Interspecies Lorenz Charts with Gini Index'))
+#Combine Pairs based on species
+aa <- grid.arrange(a, f, ncol=2, top = textGrob('Green Sturgeon', gp=gpar(fontface='bold',fontsize=10)))
+bb <- grid.arrange(b, g, ncol=2, top = textGrob('White Sturgeon', gp=gpar(fontface='bold',fontsize=10)))
+cc <- grid.arrange(c, h, ncol=2, top = textGrob('Sacramento Pikeminnow', gp=gpar(fontface='bold',fontsize=10)))
+dd <- grid.arrange(d, i, ncol=2, top = textGrob('Steelhead', gp=gpar(fontface='bold',fontsize=10)))
+ee <- grid.arrange(e, j, ncol=2, top = textGrob('Striped Bass', gp=gpar(fontface='bold',fontsize=10)))
+
+#Make Final Plots
+grid.arrange(aa, cc, dd, ee,bb, ncol=1, nrow=5, left = 'Total Movement', 
+             bottom='Rank           Cumulative % of Movement Observations') #Final Product
 
 
 
 ```
-
-
-
-Updated Example Code:
-
-```{r}
-#Change values of imported CSV so that subsequent detections can handle it.
-df_det <- select(new_det, DetectDate, Detection_GPS, TagID, Location, Species, Release_Location, Release_Date, Release_GPS, Release_rkm = Release_RKm, Detect_rkm = Detection_RKm, Length, Length_Type, Tag_Type)
-
-#Get motilities for all species
-gsturg_motility <- get_species_motility(det, 'Green_Sturgeon', 1300)
-wsturg_motility <- get_species_motility(det, 'White_Sturgeon', 600)
-striped_motility <- get_species_motility(det, 'Striped_bass', 580)
-pike_motility <- get_species_motility(det, 'Sacramento_pikeminnow', 310)
-steelhead_motility <- get_species_motility(det, 'Steelhead',350)
-
-#Get proportionality for ENTIRE species dataset
-all_green <- smush_motility(gsturg_motility) %>% get_proportionality_total()
-all_white <- smush_motility(wsturg_motility) %>% get_proportionality_total()
-all_striped <- smush_motility(striped_motility) %>% get_proportionality_total()
-all_pike <- smush_motility(pike_motility) %>% get_proportionality_total()
-all_steelhead <- smush_motility(steelhead_motility) %>% get_proportionality_total()
-
-#Put plots into a list
-a <- all_years_evenness(all_steelhead, 'All Steelhead Evenness')
-b <- all_years_evenness(all_striped, 'All Striped Bass Evenness')
-c <- all_years_evenness(all_white, 'All White Sturgeon Evenness')
-d <- all_years_evenness(all_green, 'All Green Sturgeon Evenness')
-e <- all_years_evenness(all_pike, 'All Sacramento Pikeminnow Evenness')
-
-g_list <- list(a, b, c, d, e)
-
-#Generate Plot from list elements
-do.call('grid.arrange', c(g_list))
-
-
-
-```
-
 
 
 
